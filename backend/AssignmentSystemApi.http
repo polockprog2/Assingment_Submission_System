@@ -1,0 +1,6 @@
+@AssignmentSystemApi_HostAddress = http://localhost:5279
+
+GET {{AssignmentSystemApi_HostAddress}}/AssignementSystemApi/
+Accept: application/json
+
+###

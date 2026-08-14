@@ -1,0 +1,57 @@
+# Build results
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.idea/
+
+# Test results
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+
+# Runtime / published
+published/
+publish/
+artifacts/
+
+# EF Core migrations bundles
+efbundle.exe
+efbundle
+
+# Secrets / local config
+appsettings.Development.json
+appsettings.Production.json
+appsettings.local.json
+
+# Runtime uploads and data
+uploads/
+*.sqlite
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Rider
+.idea/
+
+# User-specific
+*.DotSettings.user

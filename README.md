@@ -1,0 +1,548 @@
+# Assignment & Submission Management System API
+
+A backend API that lets schools manage **assignments** and **student submissions** online. Teachers post assignments and grade work; students submit answers before the deadline; admins run the whole thing.
+
+Built with **ASP.NET Core 8**, **Entity Framework Core**, **PostgreSQL**, and **JWT** authentication.
+
+## Contents
+
+1. [How it works](#how-it-works)
+2. [Tech stack](#tech-stack)
+3. [Quick start](#quick-start)
+4. [Setup, step by step](#setup-step-by-step)
+5. [Demo accounts](#demo-accounts)
+6. [Project structure](#project-structure)
+7. [Configuration](#configuration)
+8. [Database schema](#database-schema)
+9. [API reference](#api-reference)
+10. [Testing](#testing)
+11. [Development workflow](#development-workflow)
+12. [Troubleshooting](#troubleshooting)
+13. [Security notes](#security-notes)
+14. [Contributing](#contributing)
+
+---
+
+## How it works
+
+Three types of users, each with a clear job:
+
+| Role      | What they can do |
+|-----------|------------------|
+| **Admin**   | Manage everything: users, classes, subjects, and which teacher teaches which subject. Can see all submissions but doesn't submit or grade. |
+| **Teacher** | Create and publish assignments for the subjects they teach, then grade students' submissions. |
+| **Student** | See published assignments for their own class and submit work **before the deadline**. |
+
+**Business rules enforced by the API:**
+
+1. Students only see assignments **for their class** that are **published**.
+2. Submissions **after the deadline are rejected**.
+3. **Marks never exceed** the assignment's max marks.
+4. Teachers can only manage **their own** assignments and grade submissions for them.
+5. Admins see everything but never submit or grade.
+
+## Tech stack
+
+- **Framework**: ASP.NET Core 8 (C#)
+- **Database**: PostgreSQL with Entity Framework Core + Npgsql
+- **Auth**: JWT bearer tokens, BCrypt password hashing
+- **File storage**: Local disk with extension/size allowlists and path-containment checks
+- **API docs**: Swagger/Swashbuckle
+- **Testing**: xUnit + WebApplicationFactory integration tests (InMemory EF)
+
+## Quick start
+
+You need **.NET 8 SDK** and **PostgreSQL** installed (see [Setup, step by step](#setup-step-by-step) for details and alternatives).
+
+```bash
+# 1. Create the database (run once in your PostgreSQL client)
+CREATE DATABASE "Submission_System";
+
+# 2. Give the API its secrets (from the backend folder)
+cd backend
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Database=Submission_System;Username=postgres;Password=YOUR_PASSWORD"
+dotnet user-secrets set "Jwt:Key" "your-random-key-at-least-32-characters"
+
+# 3. Run it
+dotnet run --launch-profile http
+```
+
+Done — the API creates its tables and demo data automatically, then opens Swagger at **http://localhost:5279/swagger**.
+
+## Setup, step by step
+
+### Prerequisites
+
+- **.NET 8 SDK** — the engine that runs the API. [Download](https://dotnet.microsoft.com/download/dotnet/8.0).
+- **PostgreSQL 12+** — the database that stores everything. [Download](https://www.postgresql.org/download/). Make sure the service is running.
+- *(Optional)* **Node.js 18+** — only needed if you also run the frontend.
+
+### Step 1 — Create the database
+
+In your PostgreSQL client (psql, pgAdmin, etc.):
+
+```sql
+CREATE DATABASE "Submission_System";
+```
+
+Use a different name if you like — just keep it consistent with the connection string in Step 2.
+
+### Step 2 — Give the API two secrets
+
+The API won't start without a **database connection string** and a **JWT signing key**. They're kept out of git for safety, so you provide your own. Pick one option:
+
+**Option A — user-secrets (recommended).** Stored privately on your machine, outside the repo:
+
+```bash
+cd backend
+
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Database=Submission_System;Username=postgres;Password=YOUR_PASSWORD"
+dotnet user-secrets set "Jwt:Key" "your-random-key-at-least-32-characters"
+```
+
+**Option B — environment variables.** The API reads `__` as a "section separator" (`ConnectionStrings:DefaultConnection` → `ConnectionStrings__DefaultConnection`):
+
+```powershell
+$env:ConnectionStrings__DefaultConnection="Host=localhost;Database=Submission_System;Username=postgres;Password=YOUR_PASSWORD"
+$env:Jwt__Key="your-random-key-at-least-32-characters"
+```
+
+**Option C — local settings file.** Copy the example config into a git-ignored development file, then replace the `CHANGE_ME` placeholders:
+
+```bash
+cp backend/appsettings.Example.json backend/appsettings.Development.json
+```
+
+> **What's the JWT key?** It's like a wax seal the API puts on login tokens to prove they're genuine. It must be a random string of **at least 32 characters** — the longer, the safer. If it's missing or too short, the API **refuses to start** on purpose.
+
+### Step 3 — Run
+
+```bash
+cd backend
+dotnet run --launch-profile http
+```
+
+On startup the API does three things automatically:
+
+1. **Applies migrations** — creates/updates all tables. No manual SQL.
+2. **Seeds demo data** — classes, subjects, and demo users (see [Demo accounts](#demo-accounts)).
+3. **Opens Swagger** — an interactive, click-to-try API explorer.
+
+| Where to find it | URL |
+|------------------|-----|
+| API (HTTP) | http://localhost:5279 |
+| API (HTTPS) | https://localhost:7147 |
+| Swagger UI | http://localhost:5279/swagger |
+
+> Won't start? See [Troubleshooting](#troubleshooting) — usually a missing connection string or PostgreSQL not running.
+
+## Demo accounts
+
+Seeded automatically on startup:
+
+| Role | Email | Password |
+|------|-------|----------|
+| Admin | `admin@example.com` | `AdminPass1!` |
+| Teacher | `teacher@example.com` | `TeacherPass1!` |
+| Teacher 2 | `teacher2@example.com` | `Teacher2Pass1!` |
+| Student | `student@example.com` | `StudentPass1!` |
+| Student 2 | `student2@example.com` | `Student2Pass1!` |
+
+## Project structure
+
+```
+backend/
+├── Controllers/           API endpoints (role-based)
+├── Entities/              EF Core entity models
+├── Data/
+│   ├── AppDbContext.cs    EF Core database context
+│   ├── DbSeeder.cs        Demo data seeding
+│   └── Migrations/        EF Core migrations
+├── Services/              Business logic & ownership checks
+├── DTOs/                  Request/response models (validated)
+├── Middleware/            Global exception handler
+├── Common/                Shared types (e.g. PagedResponse<T>)
+├── Program.cs             Startup configuration
+├── appsettings.json       Non-secret configuration
+└── appsettings.Development.json   Git-ignored local secrets
+
+AssignmentSystemApi.Tests/
+└── IntegrationTests/      Role boundary & file upload tests
+```
+
+## Configuration
+
+| Variable | Example | Description |
+|----------|---------|-------------|
+| `ConnectionStrings:DefaultConnection` | `Host=localhost;Database=Submission_System;...` | PostgreSQL connection string |
+| `Jwt:Key` | random, ≥32 chars | JWT signing key (**secret**) |
+| `Jwt:Issuer` | `AssignmentSystemApi` | JWT issuer |
+| `Jwt:Audience` | `AssignmentSystemApiUsers` | JWT audience |
+| `Jwt:ExpiresMinutes` | `120` | Token expiry (minutes) |
+| `Cors:AllowedOrigins` | `http://localhost:3000,...` | Comma-separated allowed origins |
+| `Storage:UploadsRoot` | `uploads` | Upload folder |
+| `Storage:MaxFileSizeMb` | `50` | Max upload size |
+| `Storage:AllowedExtensions` | `[".pdf", ".docx"]` | Allowed file extensions |
+
+## Database schema
+
+The database has **six tables** named after the C# entities: `Users`, `Classes`, `Subjects`, `TeacherSubjectAssignments`, `Assignments`, `Submissions` — plus `__EFMigrationsHistory`, EF Core's internal bookkeeping table (safe to ignore).
+
+<details>
+<summary>Click to expand: all tables, columns, and keys</summary>
+
+#### `Classes`
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| Id | `integer` (identity) | no | auto |
+| Name | `text` | no | — |
+
+#### `Subjects`
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| Id | `integer` (identity) | no | auto |
+| Name | `text` | no | — |
+| ClassId | `integer` | no | — |
+
+FK: `ClassId → Classes.Id` (CASCADE). Unique: `(Name, ClassId)`.
+
+#### `Users`
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| Id | `integer` (identity) | no | auto |
+| Email | `text` | no | — |
+| PasswordHash | `text` | no | — |
+| Role | `text` | no | `Admin` / `Teacher` / `Student` |
+| ClassId | `integer` | yes | null (students only) |
+| CreatedAt | `timestamptz` | no | `now()` |
+
+FK: `ClassId → Classes.Id`. Unique: `Email`.
+
+#### `Assignments`
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| Id | `integer` (identity) | no | auto |
+| Title | `text` | no | — |
+| Description | `text` | yes | null |
+| Deadline | `timestamptz` | no | — |
+| MaxMarks | `integer` | no | — |
+| Status | `text` | no | `'Draft'` |
+| SubjectId | `integer` | no | — |
+| TeacherId | `integer` | no | — |
+| FilePath / FileName / FileContentType / FileSize | `text` / `text` / `text` / `bigint` | yes | null |
+| CreatedAt | `timestamptz` | no | `now()` |
+| PublishedAt | `timestamptz` | yes | null |
+| UpdatedAt | `timestamptz` | yes | null |
+
+FKs: `SubjectId → Subjects.Id` (CASCADE), `TeacherId → Users.Id` (CASCADE).
+
+#### `TeacherSubjectAssignments` (teacher ↔ subject link)
+| Column | Type | Nullable |
+|--------|------|----------|
+| Id | `integer` (identity) | no |
+| TeacherId | `integer` | no |
+| SubjectId | `integer` | no |
+
+FKs: `TeacherId → Users.Id`, `SubjectId → Subjects.Id` (CASCADE). Unique: `(TeacherId, SubjectId)`.
+
+#### `Submissions`
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| Id | `integer` (identity) | no | auto |
+| AssignmentId | `integer` | no | — |
+| StudentId | `integer` | no | — |
+| Content | `text` | yes | null |
+| FilePath / FileName / FileContentType / FileSize | `text` / `text` / `text` / `bigint` | yes | null |
+| SubmittedAt | `timestamptz` | no | `now()` |
+| SubmissionStatus | `text` | no | `'Submitted'` (`Submitted` / `Late`) |
+| GradingStatus | `text` | no | `'Pending'` (`Pending` / `Graded`) |
+| Marks | `integer` | yes | null |
+| Feedback | `text` | yes | null |
+| GradedAt | `timestamptz` | yes | null |
+| UpdatedAt | `timestamptz` | yes | null |
+
+FKs: `AssignmentId → Assignments.Id`, `StudentId → Users.Id` (CASCADE). Unique: `(AssignmentId, StudentId)` — one submission per student per assignment.
+
+#### `__EFMigrationsHistory` (EF Core bookkeeping)
+| Column | Type | Nullable |
+|--------|------|----------|
+| MigrationId | `varchar(150)` | no (PK) |
+| ProductVersion | `varchar(32)` | no |
+
+**Relationships at a glance**
+
+- `Classes` → `Subjects` (one class, many subjects)
+- `Subjects` → `Assignments` (one subject, many assignments)
+- `Users` (teacher) → `Assignments` (one teacher, many assignments)
+- `Users` (teacher) ↔ `Subjects` (many-to-many via `TeacherSubjectAssignments`)
+- `Assignments` → `Submissions` (one assignment, many submissions)
+- `Users` (student) → `Submissions` (one student, many submissions)
+- `Users` (student) → `Classes` (many students, one class)
+
+A complete dump of the live database is in [`Database/fulldata.sql`](Database/fulldata.sql).
+
+</details>
+
+### Inspecting the schema with SQL
+
+<details>
+<summary>Click to expand: queries to view the live schema</summary>
+
+**1. All tables, columns, types, and nullability:**
+```
+CREATE TABLE "Classes" (
+    "Id" integer GENERATED BY DEFAULT AS IDENTITY,
+    "Name" text NOT NULL,
+    CONSTRAINT "PK_Classes" PRIMARY KEY ("Id")
+);
+
+
+CREATE TABLE "Subjects" (
+    "Id" integer GENERATED BY DEFAULT AS IDENTITY,
+    "Name" text NOT NULL,
+    "ClassId" integer NOT NULL,
+    CONSTRAINT "PK_Subjects" PRIMARY KEY ("Id"),
+    CONSTRAINT "FK_Subjects_Classes_ClassId" FOREIGN KEY ("ClassId") REFERENCES "Classes" ("Id") ON DELETE CASCADE
+);
+
+
+CREATE TABLE "Users" (
+    "Id" integer GENERATED BY DEFAULT AS IDENTITY,
+    "Email" text NOT NULL,
+    "PasswordHash" text NOT NULL,
+    "Role" text NOT NULL,
+    "ClassId" integer,
+    "CreatedAt" timestamp with time zone NOT NULL DEFAULT (now()),
+    CONSTRAINT "PK_Users" PRIMARY KEY ("Id"),
+    CONSTRAINT "FK_Users_Classes_ClassId" FOREIGN KEY ("ClassId") REFERENCES "Classes" ("Id")
+);
+
+
+CREATE TABLE "Assignments" (
+    "Id" integer GENERATED BY DEFAULT AS IDENTITY,
+    "Title" text NOT NULL,
+    "Description" text,
+    "Deadline" timestamp with time zone NOT NULL,
+    "MaxMarks" integer NOT NULL,
+    "Status" text NOT NULL DEFAULT 'Draft',
+    "SubjectId" integer NOT NULL,
+    "TeacherId" integer NOT NULL,
+    "FilePath" text,
+    "FileName" text,
+    "FileContentType" text,
+    "FileSize" bigint,
+    "CreatedAt" timestamp with time zone NOT NULL DEFAULT (now()),
+    "PublishedAt" timestamp with time zone,
+    "UpdatedAt" timestamp with time zone,
+    CONSTRAINT "PK_Assignments" PRIMARY KEY ("Id"),
+    CONSTRAINT "FK_Assignments_Subjects_SubjectId" FOREIGN KEY ("SubjectId") REFERENCES "Subjects" ("Id") ON DELETE CASCADE,
+    CONSTRAINT "FK_Assignments_Users_TeacherId" FOREIGN KEY ("TeacherId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+);
+
+
+CREATE TABLE "TeacherSubjectAssignments" (
+    "Id" integer GENERATED BY DEFAULT AS IDENTITY,
+    "TeacherId" integer NOT NULL,
+    "SubjectId" integer NOT NULL,
+    CONSTRAINT "PK_TeacherSubjectAssignments" PRIMARY KEY ("Id"),
+    CONSTRAINT "FK_TeacherSubjectAssignments_Subjects_SubjectId" FOREIGN KEY ("SubjectId") REFERENCES "Subjects" ("Id") ON DELETE CASCADE,
+    CONSTRAINT "FK_TeacherSubjectAssignments_Users_TeacherId" FOREIGN KEY ("TeacherId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+);
+
+
+CREATE TABLE "Submissions" (
+    "Id" integer GENERATED BY DEFAULT AS IDENTITY,
+    "AssignmentId" integer NOT NULL,
+    "StudentId" integer NOT NULL,
+    "Content" text,
+    "FilePath" text,
+    "FileName" text,
+    "FileContentType" text,
+    "FileSize" bigint,
+    "SubmittedAt" timestamp with time zone NOT NULL DEFAULT (now()),
+    "SubmissionStatus" text NOT NULL DEFAULT 'Submitted',
+    "GradingStatus" text NOT NULL DEFAULT 'Pending',
+    "Marks" integer,
+    "Feedback" text,
+    "GradedAt" timestamp with time zone,
+    "UpdatedAt" timestamp with time zone,
+    CONSTRAINT "PK_Submissions" PRIMARY KEY ("Id"),
+    CONSTRAINT "FK_Submissions_Assignments_AssignmentId" FOREIGN KEY ("AssignmentId") REFERENCES "Assignments" ("Id") ON DELETE CASCADE,
+    CONSTRAINT "FK_Submissions_Users_StudentId" FOREIGN KEY ("StudentId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+);
+
+
+CREATE INDEX "IX_Assignments_SubjectId" ON "Assignments" ("SubjectId");
+
+
+CREATE INDEX "IX_Assignments_TeacherId" ON "Assignments" ("TeacherId");
+
+
+CREATE INDEX "IX_Subjects_ClassId" ON "Subjects" ("ClassId");
+
+
+CREATE UNIQUE INDEX "IX_Subjects_Name_ClassId" ON "Subjects" ("Name", "ClassId");
+
+
+CREATE UNIQUE INDEX "IX_Submissions_AssignmentId_StudentId" ON "Submissions" ("AssignmentId", "StudentId");
+
+
+CREATE INDEX "IX_Submissions_StudentId" ON "Submissions" ("StudentId");
+
+
+CREATE INDEX "IX_TeacherSubjectAssignments_SubjectId" ON "TeacherSubjectAssignments" ("SubjectId");
+
+
+CREATE UNIQUE INDEX "IX_TeacherSubjectAssignments_TeacherId_SubjectId" ON "TeacherSubjectAssignments" ("TeacherId", "SubjectId");
+
+
+CREATE INDEX "IX_Users_ClassId" ON "Users" ("ClassId");
+
+
+CREATE UNIQUE INDEX "IX_Users_Email" ON "Users" ("Email");
+```
+
+</details>
+
+## API reference
+
+All list endpoints support pagination via `?page=1&pageSize=20` (pageSize clamped to 1–100) and return `{ items, total, page, pageSize, totalPages }`.
+
+**Everyone (no login needed)**
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/health` | Health check |
+| GET | `/swagger` | Swagger UI |
+| POST | `/api/auth/login` | Login, returns JWT |
+| POST | `/api/auth/register` | Student self-registration (requires `classId`) |
+
+<details>
+<summary>Click to expand: Admin endpoints</summary>
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET/POST | `/api/users` | List / create users |
+| GET/PUT/DELETE | `/api/users/{id}` | Get / update / delete user |
+| GET/POST | `/api/classes` | List / create classes |
+| GET/PUT/DELETE | `/api/classes/{id}` | Get / update / delete class |
+| GET/POST | `/api/subjects` | List / create subjects |
+| GET/PUT/DELETE | `/api/subjects/{id}` | Get / update / delete subject |
+| GET/POST | `/api/teacher-subject-assignments` | List / assign teacher to subject |
+| DELETE | `/api/teacher-subject-assignments/{id}` | Remove assignment |
+| GET | `/api/submissions` | List all submissions |
+
+</details>
+
+<details>
+<summary>Click to expand: Teacher endpoints</summary>
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | `/api/assignments` | Create assignment (must be assigned to subject) |
+| GET | `/api/assignments` | List own assignments |
+| GET | `/api/assignments/subjects` | List subjects the teacher teaches |
+| GET | `/api/assignments/{id}` | Get own assignment |
+| PUT/DELETE | `/api/assignments/{id}` | Update / delete own assignment |
+| POST | `/api/assignments/{id}/publish` | Publish assignment |
+| POST | `/api/assignments/{id}/file` | Upload assignment file |
+| GET | `/api/assignments/{id}/file` | Download assignment file |
+| DELETE | `/api/assignments/{id}/file` | Remove assignment file |
+| GET | `/api/submissions/assignment/{assignmentId}` | View submissions for own assignment |
+| POST | `/api/submissions/{id}/grade` | Grade submission (marks + feedback) |
+
+</details>
+
+<details>
+<summary>Click to expand: Student endpoints</summary>
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | `/api/submissions` | Submit assignment (before deadline, own class) |
+| PUT | `/api/submissions/{id}` | Update submission (before deadline) |
+| GET | `/api/submissions/mine` | View own submissions |
+| POST | `/api/submissions/{id}/file` | Upload submission file |
+| GET | `/api/submissions/{id}/file` | Download submission file |
+
+</details>
+
+<details>
+<summary>Click to expand: Shared endpoints (multiple roles)</summary>
+
+| Method | Route | Roles | Description |
+|--------|-------|-------|-------------|
+| GET | `/api/assignments/available` | Student | Published assignments for own class |
+| GET | `/api/submissions/{id}/file` | Student (owner), Teacher (own assignment), Admin | Download submission file |
+
+</details>
+
+## Testing
+
+```bash
+dotnet test
+```
+
+Runs against an InMemory EF database (no PostgreSQL needed). Covers auth, role boundaries, CRUD flows, grading rules, pagination, and file upload/download.
+
+<details>
+<summary>Click to expand: last test run (15 passed, ~7s)</summary>
+
+```bash
+dotnet test AssignmentSystemApi.sln
+```
+
+| Test | Class | Covers |
+|------|-------|--------|
+| `Admin_can_login_and_create_user` | AuthTests | Login, JWT issuance, admin user creation |
+| `Student_cannot_create_user` | AuthTests | Role boundary (403 for non-admin) |
+| `Teacher_uploads_assignment_file_then_student_downloads_it` | FileUploadTests | Assignment file upload/download |
+| `Student_in_different_class_cannot_download_assignment_file` | FileUploadTests | File access control by class |
+| `Student_uploads_submission_file` | FileUploadTests | Submission file upload/download |
+| `Upload_with_disallowed_extension_is_rejected` | FileUploadTests | File type allowlist (400) |
+| `Admin_can_create_and_list_classes` | ManagementTests | Class CRUD, paginated listing |
+| `Teacher_cannot_manage_classes` | ManagementTests | Role boundary (403) |
+| `Admin_can_create_subject_and_assign_teacher` | ManagementTests | Subject + teacher-subject assignment |
+| `Teacher_can_create_and_publish_assignment` | ManagementTests | Assignment lifecycle |
+| `Student_can_submit_and_teacher_grades` | ManagementTests | Submission + grading flow |
+| `Student_from_different_class_cannot_submit` | ManagementTests | Class-based access control |
+| `Paged_list_endpoint_respects_page_size` | ManagementTests | Pagination |
+| `Register_creates_student_with_class` | ManagementTests | Self-registration, duplicate email (409) |
+| `Validation_rejects_invalid_input` | ManagementTests | DTO validation (400) |
+
+</details>
+
+## Development workflow
+
+1. Create a feature branch: `git checkout -b feature/name`
+2. Add/modify entity models in `Entities/`
+3. Update `AppDbContext`
+4. Create a migration: `dotnet ef migrations add DescriptiveName`
+5. Apply it: `dotnet ef database update`
+6. Implement service logic (business rules, ownership checks)
+7. Add a controller endpoint with `[Authorize]` and validated DTOs
+8. Write integration tests
+9. Run `dotnet build` and `dotnet test`
+
+> **CI:** a GitHub Actions workflow (`.github/workflows/ci.yml`) builds and tests on every push/PR.
+
+## Troubleshooting
+
+| Problem | Likely cause / fix |
+|---------|--------------------|
+| **401 Unauthorized** | Token missing or expired — log in again via `/api/auth/login`. Check `Jwt:Key`, Issuer, and Audience match. |
+| **403 Forbidden** | The role lacks permission, or the user doesn't own the resource. |
+| **500 Server Error** | Check console logs; make sure PostgreSQL is running and the connection string is correct. |
+| **Won't start: `InvalidOperationException` about configuration** | Set `ConnectionStrings:DefaultConnection` and `Jwt:Key` (see [Setup](#setup-step-by-step)). |
+
+## Security notes
+
+- Secrets are never committed — use user-secrets, env vars, or `appsettings.Development.json`.
+- `bin/`, `obj/`, `uploads/`, `.vs/`, and `efbundle.exe` are git-ignored.
+- JWT key must be a strong random value ≥32 chars; the API refuses to start otherwise.
+- Uploads are restricted by extension and size, and stored paths stay inside the uploads root.
+- A global exception handler returns consistent JSON for unhandled errors.
+- HTTPS is enforced outside the Development environment.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.

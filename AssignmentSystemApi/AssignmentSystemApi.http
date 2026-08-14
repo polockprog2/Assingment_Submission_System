@@ -1,6 +1,0 @@
-@AssignmentSystemApi_HostAddress = http://localhost:5279
-
-GET {{AssignmentSystemApi_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###
